@@ -9,7 +9,7 @@
 #include <windows.h>
 
 #define APP_NAME                        "keil-build-viewer"
-#define APP_VERSION                     "v1.5b"
+#define APP_VERSION                     "v1.6"
 
 #define MAX_DIR_HIERARCHY               32      /* 最大目录层级 */
 #define MAX_PATH_QTY                    32      /* 最大目录数量 */
@@ -33,6 +33,8 @@
 #define USED_SYMBOL_BIG5_H              0xA1    /* ■ */
 #define USED_SYMBOL_BIG5_L              0xBD
 #define UNUSE_SYMBOL                    "_"
+
+#define UNUSED_LOAD_REGION_NAME         "Unused Load Region"
 
 #define STR_ZERO_INIT                   " Zero "
 #define STR_PADDING                     " PAD"
@@ -106,7 +108,6 @@ typedef enum
 
 typedef enum
 {
-    
     MEMORY_PRINT_MODE_0 = 0x00, /* keil pack 有 RAM 和 ROM 信息（多数情况） */
     MEMORY_PRINT_MODE_1,        /* keil pack 没有 RAM 和 ROM 信息，但 memory 使用了 keil dialog 配置 */
     MEMORY_PRINT_MODE_2,        /* keil pack 没有 RAM 和 ROM 信息，并且使用自定义的 scatter file */
@@ -162,6 +163,7 @@ struct region_block
 struct exec_region
 {
     char *name;
+    char *load_region_name;
     size_t memory_id;       /* 从 1 开始， 1 固定为 unknown */
     uint32_t base_addr;
     uint32_t size;
@@ -169,7 +171,7 @@ struct exec_region
     MEMORY_TYPE memory_type;
     bool is_offchip;
     bool is_printed;
-
+    
     struct region_block *zi_block;
     struct exec_region *old_exec_region;
     struct exec_region *next;
@@ -186,11 +188,13 @@ struct memory_info
 {
     char *name;
     size_t id;
+    size_t mem_id;
     uint32_t base_addr;
     uint32_t size;
     MEMORY_TYPE type;
     bool is_from_pack;
     bool is_offchip;
+    bool is_used;
     struct memory_info *next;
 };
 
@@ -257,6 +261,7 @@ void                    object_info_free            (struct object_info **object
 struct load_region *    load_region_create          (struct load_region **region_head, const char *name);
 struct exec_region *    load_region_add_exec_region (struct load_region **region_head, 
                                                      const char *name,
+                                                     const char *load_region_name,
                                                      size_t      memory_id,
                                                      uint32_t    base_addr,
                                                      uint32_t    size,
@@ -316,7 +321,10 @@ int                     record_file_process         (const char *file_path,
 void                    object_print_process        (struct object_info *object_head,
                                                      size_t max_path_len, 
                                                      bool is_has_record);
+void                    memory_numbering            (MEMORY_TYPE mem_type);
+void                    memory_print_unused         (MEMORY_TYPE mem_type, size_t max_region_name);
 void                    memory_mode0_print          (struct exec_region *e_region,
+                                                     const char *load_region_name,
                                                      MEMORY_TYPE mem_type,
                                                      size_t max_region_name, 
                                                      bool is_has_record,

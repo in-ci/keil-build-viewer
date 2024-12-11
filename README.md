@@ -1,4 +1,4 @@
-# keil-build-viewer v1.5b
+# keil-build-viewer v1.6
 
 ## [English](./README_EN.md)
 
@@ -35,6 +35,7 @@
     - `-PATH`    显示每个文件的相对路径（默认）
     - `-NOPATH`  仅显示每个文件的文件名
     - `以下为 v1.5 新增功能`
+    - `-NOLOG`   不生成 log 文件
     - `-STYLE0`  进度条样式跟随系统（默认）
     - `-STYLE1`  进度条样式一： `|###OOO____|` （非中文环境时默认样式）
     - `-STYLE2`  进度条样式二： `|XXXOOO____|`
@@ -135,6 +136,7 @@
 | v1.5  | 2023-11-30 | Dino         | 1. 新增更多的 progress bar 样式<br>2. 新增解析自定义的 memory area<br>3. 修复 RAM 和 ROM 信息缺失时显示异常的问题 |
 | v1.5a | 2023-11-30 | Dino         | 1. 修复 object 数据溢出的问题<br>2. 修改进度条内存大小的显示策略，不再四舍五入 |
 | v1.5b | 2023-12-02 | Dino         | 1. 修复保存文件路径内存动态分配过小的问题            |
+| v1.6  | 2024-12-11 | Dino         | 1. 【修复】有多个 region 时导致显示回车多行的问题<br>2. 【修复】Execution Region 被错误识别的问题<br>3. 【修复】当 Execution Region 在其他 Loard Region 中使用会重复显示的问题<br>4. 【修改】将未使用的 memory 放在同一分类显示<br>5. 【修改】若 Execution Region Size 为 UINT32_MAX 时，则修改为对应 memory 的 Size |
 
 
 ## 参与贡献

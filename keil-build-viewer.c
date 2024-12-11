@@ -29,7 +29,7 @@
  * This file is keil-build-viewer.
  *
  * Author:        Dino Haw <347341799@qq.com>
- * Version:       v1.5b
+ * Version:       v1.6
  * Change Logs:
  * Version  Date         Author     Notes
  * v1.0     2023-11-10   Dino       the first version
@@ -44,7 +44,12 @@
  *                                  3. 修复 RAM 和 ROM 信息缺失时显示异常的问题
  * v1.5a    2023-11-30   Dino       1. 修复 object 数据溢出的问题
  *                                  2. 修改进度条内存大小的显示策略，不再四舍五入
- * v1.5b    2023-12-02   Dino       1. 修复保存文件路径内存动态分配过小的问题
+ * v1.5b    2023-12-02   Dino       1. 【修复】保存文件路径内存动态分配过小的问题
+ * v1.6     2024-12-11   Dino       1. 【修复】有多个 region 时导致显示回车多行的问题
+ *                                  2. 【修复】Execution Region 被错误识别的问题
+ *                                  3. 【修复】当 Execution Region 在其他 Loard Region 中使用会重复显示的问题
+ *                                  4. 【修改】将未使用的 memory 放在同一分类显示
+ *                                  5. 【修改】若 Execution Region Size 为 UINT32_MAX 时，则修改为对应 memory 的 Size
  */
 
 /* Includes ------------------------------------------------------------------*/
@@ -53,6 +58,8 @@
 
 /* Private variables ---------------------------------------------------------*/
 static FILE *                   _log_file;
+static bool                     _is_save_log = true;
+static bool                     _is_has_unused_region;
 static bool                     _is_display_object = true;
 static bool                     _is_display_path   = true;
 static char                     _line_text[1024];
@@ -69,6 +76,10 @@ static const char *             _keil_prj_extension[] =
 };
 static struct command_list      _command_list[] = 
 {
+    {
+        .cmd  = "-NOLOG",
+        .desc = "NOT save log file",
+    },
     {
         .cmd  = "-OBJ",
         .desc = "Display the ram and flash occupancy of each object file (default)",
@@ -174,10 +185,6 @@ int main(int argc, char *argv[])
         result = -23;
         goto __exit;
     }
-    snprintf(file_path, file_path_size, "%s\\%s.log", _current_dir, APP_NAME);
-    _log_file = fopen(file_path, "w+");
-
-    log_print(_log_file, "\n=================================================== %s %s ==================================================\n ", APP_NAME, APP_VERSION);
 
     /* 2. 搜索同级目录或指定目录下的所有 keil 工程并打印 */
     _keil_prj_path_list = prj_path_list_init(MAX_PATH_QTY);
@@ -188,13 +195,7 @@ int main(int argc, char *argv[])
                               sizeof(_keil_prj_extension) / sizeof(char *),
                               _keil_prj_path_list);
 
-    if (_keil_prj_path_list->size > 0) {
-        log_save(_log_file, "\n[Search keil project] %d item(s)\n", _keil_prj_path_list->size);
-    }
-
-    for (size_t i = 0; i < _keil_prj_path_list->size; i++) {
-        log_save(_log_file, "\t%s\n", _keil_prj_path_list->items[i]);
-    }
+    snprintf(file_path, file_path_size, "%s\\%s.log", _current_dir, APP_NAME);
 
     /* 3. 参数处理 */
     char input_param[MAX_PATH] = {0};
@@ -209,6 +210,11 @@ int main(int argc, char *argv[])
                                     input_param, 
                                     sizeof(input_param),
                                     &err_param);
+
+        if (_is_save_log) {
+            _log_file = fopen(file_path, "w+");
+        }
+
         if (res == -1)
         {
             log_print(_log_file, "\n[ERROR] INVALID INPUT (code: %d): %s\n", GetLastError(), argv[1]);
@@ -241,6 +247,19 @@ int main(int argc, char *argv[])
             result = 0;
             goto __exit;
         }
+    }
+    else {
+        _log_file = fopen(file_path, "w+");
+    }
+
+    log_print(_log_file, "\n=================================================== %s %s ==================================================\n ", APP_NAME, APP_VERSION);
+
+    if (_keil_prj_path_list->size > 0) {
+        log_save(_log_file, "\n[Search keil project] %d item(s)\n", _keil_prj_path_list->size);
+    }
+
+    for (size_t i = 0; i < _keil_prj_path_list->size; i++) {
+        log_save(_log_file, "\t%s\n", _keil_prj_path_list->items[i]);
     }
 
     log_save(_log_file, "\n[User input] %s\n", input_param);
@@ -376,14 +395,20 @@ int main(int argc, char *argv[])
     if (is_has_target == false) {
         p_target_name = uvprojx_file.target_name;
     }
-    log_print(_log_file, "\n[%s]  [%s]  [%s]\n \n", keil_prj_full_name, p_target_name, uvprojx_file.chip);
+    log_print(_log_file, "\n[%s]  [%s]  [%s]", keil_prj_full_name, p_target_name, uvprojx_file.chip);
+
+    if (uvprojx_file.is_enable_lto) {
+        log_print(_log_file, "  [LTO enable]\n \n");
+    } else {
+        log_print(_log_file, "  [LTO disable]\n \n");
+    }
 
     log_save(_log_file, "[memory info]\n");
     for (struct memory_info *memory = _memory_info_head; 
          memory != NULL; 
          memory = memory->next)
     {
-        log_save(_log_file, "[name] %s [base addr] 0x%.8X [size] 0x%.8X [type] %d [off-chip] %d [is pack] %d [ID] %d \n", 
+        log_save(_log_file, "[name] %s [base addr] 0x%08X [size] 0x%08X [type] %d [off-chip] %d [is pack] %d [ID] %d \n", 
                  memory->name, memory->base_addr, memory->size, memory->type, memory->is_offchip, memory->is_from_pack, memory->id);
     }
 
@@ -469,7 +494,7 @@ int main(int argc, char *argv[])
              e_region != NULL; 
              e_region = e_region->next)
         {
-            log_save(_log_file, "\t[execution region] %s, 0x%.8X, 0x%.8X, 0x%.8X [memory type] %d [memory ID] %d\n", 
+            log_save(_log_file, "\t[execution region] %s, 0x%08X, 0x%08X, 0x%08X [memory type] %d [memory ID] %d\n", 
                      e_region->name, e_region->base_addr, e_region->size, 
                      e_region->used_size, e_region->memory_type, e_region->memory_id);
             
@@ -477,7 +502,7 @@ int main(int argc, char *argv[])
                  block != NULL;
                  block = block->next)
             {
-                log_save(_log_file, "\t\t[ZI block] addr: 0x%.8X, size: 0x%.8X (%d)\n", 
+                log_save(_log_file, "\t\t[ZI block] addr: 0x%08X, size: 0x%08X (%d)\n", 
                          block->start_addr, block->size, block->size);
             }
             log_save(_log_file, "\n");
@@ -626,7 +651,7 @@ int main(int argc, char *argv[])
                         }
                     }
                 }
-                log_save(_log_file, "\t[execution region] %s, 0x%.8X, 0x%.8X, 0x%.8X [type] %d [ID] %d\n", 
+                log_save(_log_file, "\t[execution region] %s, 0x%08X, 0x%08X, 0x%08X [type] %d [ID] %d\n", 
                          old_exec_region->name, old_exec_region->base_addr, old_exec_region->size, 
                          old_exec_region->used_size, old_exec_region->memory_type, old_exec_region->memory_id);
             }
@@ -677,9 +702,9 @@ int main(int argc, char *argv[])
         fputs(STR_OBJECT_TOTALS "\n\n", p_file);
         fclose(p_file);
     }
-    else {
-        log_print(_log_file, "[WARNING] Because LTO is enabled, information for each file cannot be displayed\n \n");
-    }
+    // else {
+    //     log_print(_log_file, "[WARNING] Because LTO is enabled, information for each file cannot be displayed\n \n");
+    // }
     
     /* 11. 打印总 flash 和 RAM 占用情况，以进度条显示 */
     /* 11.1 算出 execution region name 的最大长度  */
@@ -720,6 +745,19 @@ int main(int argc, char *argv[])
     log_save(_log_file, "[memory print mode]: %d\n", print_mode);
 
     /* 11.3 开始打印 */
+    memory_numbering(MEMORY_TYPE_RAM);
+    memory_numbering(MEMORY_TYPE_FLASH);
+
+    if (_is_has_unused_region
+    &&  print_mode == MEMORY_PRINT_MODE_0)
+    {
+        log_print(_log_file, UNUSED_LOAD_REGION_NAME "\n");
+
+        memory_print_unused(MEMORY_TYPE_RAM, max_region_name);
+        memory_print_unused(MEMORY_TYPE_FLASH, max_region_name);
+        log_print(_log_file, " \n");
+    }
+    
     bool is_print_null = true;
     for (struct load_region *l_region = load_region_head; 
          l_region != NULL; 
@@ -740,9 +778,9 @@ int main(int argc, char *argv[])
         }
         else 
         {
-            memory_mode0_print(l_region->exec_region, MEMORY_TYPE_RAM,     max_region_name, is_has_record, is_print_null);
-            memory_mode0_print(l_region->exec_region, MEMORY_TYPE_FLASH,   max_region_name, is_has_record, is_print_null);
-            memory_mode0_print(l_region->exec_region, MEMORY_TYPE_UNKNOWN, max_region_name, is_has_record, is_print_null);
+            memory_mode0_print(l_region->exec_region, l_region->name, MEMORY_TYPE_RAM,     max_region_name, is_has_record, is_print_null);
+            memory_mode0_print(l_region->exec_region, l_region->name, MEMORY_TYPE_FLASH,   max_region_name, is_has_record, is_print_null);
+            memory_mode0_print(l_region->exec_region, l_region->name, MEMORY_TYPE_UNKNOWN, max_region_name, is_has_record, is_print_null);
         }
         is_print_null = false;
     }
@@ -800,7 +838,7 @@ int main(int argc, char *argv[])
              e_region = e_region->next)
         {
             snprintf(_line_text, sizeof(_line_text),
-                     "\t\t%s %s (%s0x%.8X, %s0x%.8X, %s0x%.8X, END)\n\n",
+                     "\t\t%s %s (%s0x%08X, %s0x%08X, %s0x%08X, END)\n\n",
                      STR_EXECUTION_REGION, e_region->name, STR_EXECUTE_BASE_ADDR, e_region->base_addr,
                      STR_REGION_USED_SIZE, e_region->used_size, STR_REGION_MAX_SIZE, e_region->size);
             fputs(_line_text, p_file);
@@ -859,6 +897,9 @@ int parameter_process(int    param_qty,
         {
             int seq = 0;
             if (strcasecmp(param[i], _command_list[seq++].cmd) == 0) {
+                _is_save_log = false;
+            }
+            else if (strcasecmp(param[i], _command_list[seq++].cmd) == 0) {
                 _is_display_object = true;
             }
             else if (strcasecmp(param[i], _command_list[seq++].cmd) == 0) {
@@ -1445,7 +1486,7 @@ void file_rename_process(void)
  */
 bool memory_area_process(const char *str, bool is_new)
 {
-    static uint8_t id    = 0;
+    static uint8_t area  = 0;
     static uint8_t state = 0;
     static uint32_t addr = 0;
     static uint32_t size = 0;
@@ -1454,7 +1495,7 @@ bool memory_area_process(const char *str, bool is_new)
 
     if (str == NULL || strstr(str, LABEL_END_ONCHIP_MEMORY))
     {
-        id       = 0;
+        area     = 0;
         state    = 0;
         addr     = 0;
         size     = 0;
@@ -1492,7 +1533,7 @@ bool memory_area_process(const char *str, bool is_new)
                 } else {
                     mem_type = MEMORY_TYPE_FLASH;
                 }
-                id++;
+                area++;
                 state = 3;
             }
             break;
@@ -1543,7 +1584,7 @@ bool memory_area_process(const char *str, bool is_new)
             if (strstr(str, LABLE_END_MEMORY_AREA))
             {
                 bool is_offchip = true;
-                if (id == 4 || id == 5 || id == 9 || id == 10) {
+                if (area == 4 || area == 5 || area == 9 || area == 10) {
                     is_offchip = false;
                 }
                 mem_id++;
@@ -1759,6 +1800,7 @@ int region_info_process(FILE *p_file,
         char *str_p1  = NULL;
         char *str_p2  = NULL;
         char *end_ptr = NULL;
+        char *load_region_name = NULL;
         char name[MAX_PRJ_NAME_SIZE] = {0};
         uint32_t base_addr = 0;
         uint32_t size      = 0;
@@ -1823,6 +1865,7 @@ int region_info_process(FILE *p_file,
                 is_offchip  = false;
                 memory_id   = UNKNOWN_MEMORY_ID;
                 memory_type = MEMORY_TYPE_UNKNOWN;
+                load_region_name = NULL;
 
                 if (is_match_memory)
                 {
@@ -1832,18 +1875,33 @@ int region_info_process(FILE *p_file,
                          memory_temp = memory_temp->next)
                     {
                         if (base_addr >= memory_temp->base_addr
-                        &&  base_addr <= (memory_temp->base_addr + memory_temp->size))
+                        &&  base_addr < (memory_temp->base_addr + memory_temp->size))
                         {
+                            memory_temp->is_used = true;
+
                             is_offchip  = memory_temp->is_offchip;
                             memory_id   = memory_temp->id;
                             memory_type = memory_temp->type;
+                            load_region_name = l_region->name;
+
+                            if (size == UINT32_MAX) {
+                                size = memory_temp->size;
+                            }
                             break;
                         }
                     }
                 }
 
                 region_zi_process(NULL, NULL, 0);
-                e_region = load_region_add_exec_region(&l_region, name, memory_id, base_addr, size, used_size, memory_type, is_offchip);
+                e_region = load_region_add_exec_region(&l_region,
+                                                       name,
+                                                       load_region_name,
+                                                       memory_id,
+                                                       base_addr,
+                                                       size,
+                                                       used_size,
+                                                       memory_type,
+                                                       is_offchip);
             }
             else if (e_region 
             &&       e_region->memory_type != MEMORY_TYPE_FLASH
@@ -2361,22 +2419,89 @@ void object_print_process(struct object_info *object_head,
 
 
 /**
+ * @brief  为 memory 编号
+ * @note   
+ * @param  mem_type: 指定编号的内存类型
+ * @retval None
+ */
+void memory_numbering(MEMORY_TYPE mem_type)
+{
+    size_t id = 1;
+
+    for (struct memory_info *memory = _memory_info_head;
+         memory != NULL;
+         memory = memory->next)
+    {
+        if (memory->is_used == false) {
+            _is_has_unused_region = true;
+        }
+
+        if (memory->type != mem_type) {
+            continue;
+        }
+
+        memory->mem_id = id++;
+    }
+}
+
+
+/**
+ * @brief  打印未使用的 memory
+ * @note   
+ * @param  mem_type:        指定打印的内存类型
+ * @param  max_region_name: 最大的 execution region 名称长度
+ * @retval None
+ */
+void memory_print_unused(MEMORY_TYPE mem_type, size_t max_region_name)
+{
+    for (struct memory_info *memory = _memory_info_head;
+         memory != NULL;
+         memory = memory->next)
+    {
+        if (memory->is_used) {
+            continue;
+        }
+
+        if (memory->type != mem_type) {
+            continue;
+        }
+
+        if (mem_type == MEMORY_TYPE_RAM) {
+            snprintf(_line_text, sizeof(_line_text), "        RAM %d    ", memory->mem_id);
+        }
+        else if (mem_type == MEMORY_TYPE_FLASH) {
+            snprintf(_line_text, sizeof(_line_text), "        FLASH %d  ", memory->mem_id);
+        }
+        else {
+            snprintf(_line_text, sizeof(_line_text), "        UNKNOWN");
+        }
+
+        log_print(_log_file, "%s%*s [0x%08X | 0x%08X (%d)]\n",
+                  _line_text, max_region_name, " ", memory->base_addr, memory->size, memory->size);
+    }
+}
+
+
+/**
  * @brief  模式零打印内存占用情况
  * @note   
- * @param  e_region:        execution region
- * @param  mem_type:        指定打印的 execution region 内存类型
- * @param  max_region_name: 最大的 execution region 名称长度
- * @param  is_has_record:   是否有记录文件
- * @param  is_print_null:   是否打印未使用的存储器
+ * @param  e_region:         execution region
+ * @param  load_region_name: 指定打印的 load region 名称
+ * @param  mem_type:         指定打印的 execution region 内存类型
+ * @param  max_region_name:  最大的 execution region 名称长度
+ * @param  is_has_record:    是否有记录文件
+ * @param  is_print_null:    是否打印未使用的存储器
  * @retval None
  */
 void memory_mode0_print(struct exec_region *e_region,
+                        const char *load_region_name,
                         MEMORY_TYPE mem_type,
                         size_t max_region_name, 
                         bool is_has_record,
                         bool is_print_null)
 {
     bool is_print_head = false;
+    bool is_print_body = false;
     char str[MAX_PRJ_NAME_SIZE] = {0};
 
     if (mem_type == MEMORY_TYPE_UNKNOWN) 
@@ -2417,25 +2542,34 @@ void memory_mode0_print(struct exec_region *e_region,
         is_print_head = false;
 
         if (mem_type == MEMORY_TYPE_RAM) {
-            snprintf(str, sizeof(str), "        RAM %d    ", id);
+            snprintf(str, sizeof(str), "        RAM %d    ", memory->mem_id);
         }
         else if (mem_type == MEMORY_TYPE_FLASH) {
-            snprintf(str, sizeof(str), "        FLASH %d  ", id);
+            snprintf(str, sizeof(str), "        FLASH %d  ", memory->mem_id);
         }
 
         for (struct exec_region *region = e_region;
              region != NULL;
              region = region->next)
         {
+            if (region->used_size == 0) {
+                continue;
+            }
+
+            if (strcmp(load_region_name, region->load_region_name)) {
+                continue;
+            }
+
             if (region->is_printed == false
             &&  memory->id   == region->memory_id
             &&  memory->type == region->memory_type)
             {
                 if (is_print_head == false)
                 {
-                    log_print(_log_file, "%s%*s [0x%.8X | 0x%.8X (%d)]\n",
+                    log_print(_log_file, "%s%*s [0x%08X | 0x%08X (%d)]\n",
                               str, max_region_name, " ", memory->base_addr, memory->size, memory->size);
                     is_print_head = true;
+                    is_print_body = true;
                 }
 
                 progress_print(region, max_region_name, is_has_record);
@@ -2443,17 +2577,21 @@ void memory_mode0_print(struct exec_region *e_region,
             }
         }
 
-        if (is_no_region 
-        &&  is_print_null 
-        &&  memory->is_from_pack) 
-        {
-            log_print(_log_file, "%s%*s [0x%.8X | 0x%.8X (%d)]\n",
-                      str, max_region_name, " ", memory->base_addr, memory->size, memory->size);
-            log_print(_log_file, "                NULL\n \n");
-        }
-        else {
-            log_print(_log_file, " \n");
-        }
+        // if (is_no_region 
+        // &&  is_print_null 
+        // &&  memory->is_from_pack) 
+        // {
+        //     log_print(_log_file, "%s%*s [0x%.8X | 0x%.8X (%d)]\n",
+        //               str, max_region_name, " ", memory->base_addr, memory->size, memory->size);
+        //     log_print(_log_file, "                NULL\n");
+        // }
+        // else {
+        //     log_print(_log_file, " \n");
+        // }
+    }
+    
+    if (is_print_body) {
+        log_print(_log_file, " \n");
     }
 }
 
@@ -2696,7 +2834,7 @@ void progress_print(struct exec_region *region,
 
     size_t space_len = max_region_name - strnlen_s(region->name, max_region_name) + 1;
     snprintf(_line_text, sizeof(_line_text),
-             "                %s%*s [0x%.8X]|%s| ( %s / %s ) %5.1f%%  ",
+             "                %s%*s [0x%08X]|%s| ( %s / %s ) %5.1f%%  ",
              region->name, space_len, " ", region->base_addr, progress, used_size_str, size_str, percent);
 
     if (is_has_record)
@@ -2829,10 +2967,6 @@ void log_write(FILE *p_log,
                const char *fmt, 
                ...)
 {
-    if (p_log == NULL) {
-        return;
-    }
-
     va_list args;
     uint16_t len;
     static char buff[1024];
@@ -2845,7 +2979,9 @@ void log_write(FILE *p_log,
         len = sizeof(buff) - 1;
     }
     
-    fputs(buff, p_log);
+    if (p_log && _is_save_log) {
+        fputs(buff, p_log);
+    }
 
     if (is_print) {
         printf("%s", buff);
@@ -3096,6 +3232,7 @@ bool memory_info_add(struct memory_info **memory_head,
     (*memory)->type         = mem_type;
     (*memory)->is_offchip   = is_offchip;
     (*memory)->is_from_pack = is_from_pack;
+    (*memory)->is_used      = false;
     (*memory)->next         = NULL;
 
     return true;
@@ -3161,18 +3298,20 @@ struct load_region * load_region_create(struct load_region **region_head, const 
 /**
  * @brief  创建新的 execution region 并添加进 load region 链表
  * @note   
- * @param  l_region:    load region 链表头
- * @param  name:        execution region 名
- * @param  memory_id:   所在的内存 ID
- * @param  base_addr:   execution region 基地址
- * @param  size:        execution region 大小，单位 byte
- * @param  used_size:   execution region 已使用大小，单位 byte
- * @param  mem_type:    execution region 内存类型
- * @param  is_offchip:  是否为片外 memory
+ * @param  l_region:            load region 链表头
+ * @param  name:                execution region 名
+ * @param  load_region_name:    所属的 load region 名
+ * @param  memory_id:           所在的内存 ID
+ * @param  base_addr:           execution region 基地址
+ * @param  size:                execution region 大小，单位 byte
+ * @param  used_size:           execution region 已使用大小，单位 byte
+ * @param  mem_type:            execution region 内存类型
+ * @param  is_offchip:          是否为片外 memory
  * @retval NULL | struct exec_region *
  */
 struct exec_region * load_region_add_exec_region(struct load_region **l_region, 
                                                  const char  *name,
+                                                 const char  *load_region_name,
                                                  size_t      memory_id,
                                                  uint32_t    base_addr,
                                                  uint32_t    size,
@@ -3198,18 +3337,23 @@ struct exec_region * load_region_add_exec_region(struct load_region **l_region,
     }
 
     *e_region = (struct exec_region *)malloc(sizeof(struct exec_region));
-
-    (*e_region)->name            = strdup(name);
-    (*e_region)->memory_id       = memory_id;
-    (*e_region)->base_addr       = base_addr;
-    (*e_region)->size            = size;
-    (*e_region)->used_size       = used_size;
-    (*e_region)->memory_type     = mem_type;
-    (*e_region)->is_offchip      = is_offchip;
-    (*e_region)->is_printed      = false;
-    (*e_region)->zi_block        = NULL;
-    (*e_region)->old_exec_region = NULL;
-    (*e_region)->next            = NULL;
+    
+    if (load_region_name) {
+        (*e_region)->load_region_name = strdup(load_region_name);
+    } else {
+        (*e_region)->load_region_name = strdup(UNUSED_LOAD_REGION_NAME);
+    }
+    (*e_region)->name             = strdup(name);
+    (*e_region)->memory_id        = memory_id;
+    (*e_region)->base_addr        = base_addr;
+    (*e_region)->size             = size;
+    (*e_region)->used_size        = used_size;
+    (*e_region)->memory_type      = mem_type;
+    (*e_region)->is_offchip       = is_offchip;
+    (*e_region)->is_printed       = false;
+    (*e_region)->zi_block         = NULL;
+    (*e_region)->old_exec_region  = NULL;
+    (*e_region)->next             = NULL;
 
     return (*e_region);
 }
@@ -3235,6 +3379,7 @@ void load_region_free(struct load_region **region_head)
             
             e_region = e_region->next;
             free(e_region_temp->name);
+            free(e_region_temp->load_region_name);
 
             struct region_block *block = e_region_temp->zi_block;
             while (block != NULL)

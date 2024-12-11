@@ -1,4 +1,4 @@
-# keil-build-viewer v1.5b
+# keil-build-viewer v1.6
 
 ![demo](images/main.png)
 
@@ -33,6 +33,7 @@ This is a keil compilation information display enhancement tool that supports th
     - `-PATH` Displays the relative path to each file (default)
     - `-NOPATH` Shows only the filename of each file
     - `The following features are new in v1.5`
+    - `-NOLOG`  No log file is generated
     - `-STYLE0` Progress bar style following system (default)
     - `-STYLE1` Progress bar style 1: `|####OOO____|` (default style for non-Chinese environments)
     - `-STYLE2` Progress Bar Style 2: `|XXXOOOO____|`
@@ -129,4 +130,4 @@ This is a keil compilation information display enhancement tool that supports th
 | v1.5 | 2023-11-30 | Dino | 1. Add more progress bar styles<br>2. Add parsing customized memory area<br>3. Fix the problem of displaying an exception when the RAM and ROM information is missing |
 | v1.5a | 2023-11-30 | Dino | 1. Fix object data overflow problem<br>2. Change the display strategy of progress bar memory size, no longer round up |
 | v1.5b | 2023-12-02 | Dino | 1. Fix save file path memory dynamic allocation is too small |
-
+| v1.6  | 2024-12-11 | Dino | 1. [Fix] Problem with multiple regions causing multiple lines to be displayed<br>2. [Fix] Problem of Execution Region being recognized incorrectly.<br>3. [Fix] Problem of duplicate display when Execution Region is used in other Loard Region.<br>4. [Modified] Display unused memory in the same category.<br>5. [Modified] If the Execution Region Size is UINT32_MAX, it will be changed to the size of the corresponding memory. |
